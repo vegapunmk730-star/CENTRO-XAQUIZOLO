@@ -2915,47 +2915,84 @@ function estClasse(e) {
 }
 
 async function gerarConteudoIA() {
-  const btn =
-    document.getElementById(
-      'gerarBtn'
-    );
-
-  btn.disabled = true;
-  btn.textContent = 'A gerar...';
+  const btn = document.getElementById('gerarBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'A gerar...';
+  }
 
   try {
+    const temaEl = document.getElementById('pub_tema');
+    const categoriaEl = document.getElementById('pub_categoria');
+    const plataformaEl = document.getElementById('pub_plataforma');
 
-    const {
-      data,
-      error
-    } = await sb.functions.invoke(
-      'smart-api',
-      {
-        body: {}
+    const tema = temaEl?.value?.trim() || '';
+    const categoria = categoriaEl?.value?.trim() || '';
+    const plataforma = plataformaEl?.value || 'ambas';
+
+    const { data, error } = await sb.functions.invoke('smart-api', {
+      body: {
+        prompt: tema || undefined,
+        tema: tema || undefined,
+        categoria: categoria || undefined,
+        plataforma
       }
-    );
+    });
 
     if (error) throw error;
 
-    showToast(
-      'Conteúdo gerado! Está pronto para revisão.',
-      'ok'
-    );
+    const result = data || {};
+    let generated = result.content ?? result.text ?? result;
 
-    carregarPublicacoes();
+    if (typeof generated === 'string') {
+      try { generated = JSON.parse(generated); } catch (_) {}
+    }
 
+    const titulo = String(generated.titulo || generated.title || result.titulo || '').trim();
+    const texto = String(generated.texto || generated.conteudo || generated.content || result.texto || result.content || result.text || '').trim();
+    const legenda = String(generated.legenda || generated.caption || result.legenda || '').trim();
+    const hashtags = String(generated.hashtags || result.hashtags || '').trim();
+
+    if (!titulo && !texto) {
+      throw new Error('A IA respondeu, mas não devolveu título ou texto utilizável.');
+    }
+
+    const registro = {
+      tema: tema || titulo,
+      categoria: categoria || 'Educação',
+      plataforma,
+      titulo: titulo || tema || 'Publicação Centro Médico X’Aquizolo',
+      texto: texto || legenda,
+      legenda: legenda || texto,
+      hashtags,
+      estado: 'Gerado'
+    };
+
+    const { data: saved, error: saveError } = await sb
+      .from('publicacoes_ia')
+      .insert(registro)
+      .select()
+      .single();
+
+    if (saveError) throw saveError;
+
+    showToast('Conteúdo gerado e guardado com sucesso!', 'ok');
+    await carregarPublicacoes();
+
+    if (saved?.id && typeof abrirPublicacao === 'function') {
+      abrirPublicacao(saved.id);
+    }
+
+    return saved;
   } catch (e) {
-
-    showToast(
-      'A função "smart-api" ainda não está a responder correctamente. Vê o AUTOMACAO_IA_SETUP.txt.',
-      'err'
-    );
-
+    console.error('Erro ao gerar conteúdo IA:', e);
+    showToast('Erro ao gerar conteúdo: ' + (e.message || 'verifique a Edge Function smart-api'), 'err');
+    return null;
   } finally {
-
-    btn.disabled = false;
-    btn.textContent =
-      'Gerar Novo Conteúdo';
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Gerar Novo Conteúdo';
+    }
   }
 }
 
@@ -3162,136 +3199,81 @@ async function salvarEdicaoPublicacao() {
    ============================================================ */
 
 async function gerarImagemPublicacao(id) {
-
-  // Usa o ID recebido pelo botão ou a publicação actualmente aberta
-  const targetId =
-    id || editingPubId;
-
-  // Procura a publicação na memória
-  const p =
-    publicacoesData.find(
-      x => x.id === targetId
-    );
+  const targetId = id || editingPubId;
+  const p = publicacoesData.find(x => x.id === targetId);
 
   if (!p) {
-    showToast(
-      'Selecione ou abra uma publicação primeiro.',
-      'err'
-    );
+    showToast('Selecione ou abra uma publicação primeiro.', 'err');
     return;
   }
 
-  // Cria o prompt com base nos dados existentes da publicação
-  const promptParaImagem =
-    p.tema ||
-    p.titulo ||
-    p.texto?.substring(0, 150) ||
-    'Imagem médica e profissional para clínica de saúde';
+  const promptParaImagem = [
+    p.tema,
+    p.titulo,
+    p.texto ? p.texto.substring(0, 300) : '',
+    'Imagem médica profissional, educativa, limpa e adequada para uma clínica de saúde.'
+  ].filter(Boolean).join('. ');
 
-  showToast(
-    'A pedir imagem à IA... Aguarde um momento.',
-    ''
-  );
+  showToast('A pedir imagem à IA... Aguarde um momento.', '');
 
   try {
-
-    // 1. Envia o PROMPT para a Edge Function
-    const {
-      data,
-      error
-    } = await sb.functions.invoke(
-      'gerar-imagem',
-      {
-        body: {
-          prompt: promptParaImagem
-        }
-      }
-    );
+    const { data, error } = await sb.functions.invoke('gerar-imagem', {
+      body: { prompt: promptParaImagem }
+    });
 
     if (error) throw error;
 
-    // 2. Obtém a URL devolvida pela Edge Function
-    const novaUrlImagem =
-      data?.imageUrl ||
-      data?.url;
+    const novaUrlImagem = data?.imageUrl || data?.url;
+    if (!novaUrlImagem) throw new Error('A IA não retornou o link da imagem.');
 
-    if (!novaUrlImagem) {
-      throw new Error(
-        'A IA não retornou o link da imagem.'
-      );
+    let imagemFinal = novaUrlImagem;
+
+    // Tenta tornar a imagem permanente no Storage do Supabase.
+    try {
+      const response = await fetch(novaUrlImagem);
+      if (response.ok) {
+        const blob = await response.blob();
+        const ext = (blob.type || 'image/png').split('/')[1] || 'png';
+        const filePath = `ia/${targetId}-${Date.now()}.${ext}`;
+        const { error: uploadError } = await sb.storage
+          .from('publicacoes-imagens')
+          .upload(filePath, blob, {
+            contentType: blob.type || 'image/png',
+            upsert: true
+          });
+
+        if (!uploadError) {
+          const { data: publicData } = sb.storage
+            .from('publicacoes-imagens')
+            .getPublicUrl(filePath);
+          if (publicData?.publicUrl) imagemFinal = publicData.publicUrl;
+        }
+      }
+    } catch (storageError) {
+      console.warn('Não foi possível persistir a imagem no Storage; mantendo URL retornada pela IA.', storageError);
     }
 
-    // 3. Guarda a URL na tabela publicacoes_ia
-    const {
-      error: updateErr
-    } = await sb
+    const { error: updateErr } = await sb
       .from('publicacoes_ia')
-      .update({
-        imagem_url: novaUrlImagem
-      })
+      .update({ imagem_url: imagemFinal })
       .eq('id', targetId);
 
-    if (updateErr) {
-      throw updateErr;
-    }
+    if (updateErr) throw updateErr;
 
-    // 4. Actualiza a imagem na pré-visualização
-    const imgPreview =
-      document.getElementById(
-        'pub_img_preview'
-      );
+    p.imagem_url = imagemFinal;
 
+    const imgPreview = document.getElementById('pub_img_preview');
     if (imgPreview) {
-
-      imgPreview.src =
-        novaUrlImagem;
-
-      imgPreview.style.display =
-        'block';
+      imgPreview.src = imagemFinal;
+      imgPreview.style.display = 'block';
     }
 
-    // 5. Actualiza o objecto na memória
-    p.imagem_url =
-      novaUrlImagem;
-
-    showToast(
-      'Imagem gerada e salva com sucesso!',
-      'ok'
-    );
-
-    // 6. Recarrega a lista
-    if (
-      typeof carregarPublicacoes ===
-      'function'
-    ) {
-      await carregarPublicacoes();
-    }
-
-    // 7. Reabre a publicação actualizada
-    if (
-      typeof abrirPublicacao ===
-      'function'
-    ) {
-      abrirPublicacao(
-        targetId
-      );
-    }
-
+    showToast('Imagem gerada e guardada com sucesso!', 'ok');
+    await carregarPublicacoes();
+    if (typeof abrirPublicacao === 'function') abrirPublicacao(targetId);
   } catch (e) {
-
-    console.error(
-      'Erro na geração de imagem:',
-      e
-    );
-
-    showToast(
-      'Erro ao gerar imagem: ' +
-      (
-        e.message ||
-        'Verifique a Edge Function'
-      ),
-      'err'
-    );
+    console.error('Erro na geração de imagem:', e);
+    showToast('Erro ao gerar imagem: ' + (e.message || 'verifique a Edge Function gerar-imagem'), 'err');
   }
 }
 
