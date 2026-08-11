@@ -1,0 +1,244 @@
+name: Fix admin IA publication pipeline
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-admin:
+    if: ${{ !contains(github.event.head_commit.message, '[auto-fix-ia]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Patch admin.js
+        env:
+          AUTO_FIX_MARKER: "[auto-fix-ia]"
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('admin.js')
+          text = path.read_text(encoding='utf-8')
+
+          new_generate = r'''async function gerarConteudoIA() {
+            const btn = document.getElementById('gerarBtn');
+            if (btn) {
+              btn.disabled = true;
+              btn.textContent = 'A gerar...';
+            }
+
+            try {
+              const temaEl = document.getElementById('pub_tema');
+              const categoriaEl = document.getElementById('pub_categoria');
+              const plataformaEl = document.getElementById('pub_plataforma');
+
+              const tema = temaEl?.value?.trim() || '';
+              const categoria = categoriaEl?.value?.trim() || '';
+              const plataforma = plataformaEl?.value || 'ambas';
+
+              const { data, error } = await sb.functions.invoke('smart-api', {
+                body: {
+                  prompt: tema || undefined,
+                  tema: tema || undefined,
+                  categoria: categoria || undefined,
+                  plataforma
+                }
+              });
+
+              if (error) throw error;
+
+              const result = data || {};
+              let generated = result.content ?? result.text ?? result;
+
+              if (typeof generated === 'string') {
+                try { generated = JSON.parse(generated); } catch (_) {}
+              }
+
+              const titulo = String(generated.titulo || generated.title || result.titulo || '').trim();
+              const texto = String(generated.texto || generated.conteudo || generated.content || result.texto || result.content || result.text || '').trim();
+              const legenda = String(generated.legenda || generated.caption || result.legenda || '').trim();
+              const hashtags = String(generated.hashtags || result.hashtags || '').trim();
+
+              if (!titulo && !texto) {
+                throw new Error('A IA respondeu, mas não devolveu título ou texto utilizável.');
+              }
+
+              const registro = {
+                tema: tema || titulo,
+                categoria: categoria || 'Educação',
+                plataforma,
+                titulo: titulo || tema || 'Publicação Centro Médico X’Aquizolo',
+                texto: texto || legenda,
+                legenda: legenda || texto,
+                hashtags,
+                estado: 'Gerado'
+              };
+
+              const { data: saved, error: saveError } = await sb
+                .from('publicacoes_ia')
+                .insert(registro)
+                .select()
+                .single();
+
+              if (saveError) throw saveError;
+
+              showToast('Conteúdo gerado e guardado com sucesso!', 'ok');
+              await carregarPublicacoes();
+
+              if (saved?.id && typeof abrirPublicacao === 'function') {
+                abrirPublicacao(saved.id);
+              }
+
+              return saved;
+            } catch (e) {
+              console.error('Erro ao gerar conteúdo IA:', e);
+              showToast('Erro ao gerar conteúdo: ' + (e.message || 'verifique a Edge Function smart-api'), 'err');
+              return null;
+            } finally {
+              if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'Gerar Novo Conteúdo';
+              }
+            }
+          }'''
+
+          new_image = r'''async function gerarImagemPublicacao(id) {
+            const targetId = id || editingPubId;
+            const p = publicacoesData.find(x => x.id === targetId);
+
+            if (!p) {
+              showToast('Selecione ou abra uma publicação primeiro.', 'err');
+              return;
+            }
+
+            const promptParaImagem = [
+              p.tema,
+              p.titulo,
+              p.texto ? p.texto.substring(0, 300) : '',
+              'Imagem médica profissional, educativa, limpa e adequada para uma clínica de saúde.'
+            ].filter(Boolean).join('. ');
+
+            showToast('A pedir imagem à IA... Aguarde um momento.', '');
+
+            try {
+              const { data, error } = await sb.functions.invoke('gerar-imagem', {
+                body: { prompt: promptParaImagem }
+              });
+
+              if (error) throw error;
+
+              const novaUrlImagem = data?.imageUrl || data?.url;
+              if (!novaUrlImagem) throw new Error('A IA não retornou o link da imagem.');
+
+              let imagemFinal = novaUrlImagem;
+
+              // Tenta tornar a imagem permanente no Storage do Supabase.
+              try {
+                const response = await fetch(novaUrlImagem);
+                if (response.ok) {
+                  const blob = await response.blob();
+                  const ext = (blob.type || 'image/png').split('/')[1] || 'png';
+                  const filePath = `ia/${targetId}-${Date.now()}.${ext}`;
+                  const { error: uploadError } = await sb.storage
+                    .from('publicacoes-imagens')
+                    .upload(filePath, blob, {
+                      contentType: blob.type || 'image/png',
+                      upsert: true
+                    });
+
+                  if (!uploadError) {
+                    const { data: publicData } = sb.storage
+                      .from('publicacoes-imagens')
+                      .getPublicUrl(filePath);
+                    if (publicData?.publicUrl) imagemFinal = publicData.publicUrl;
+                  }
+                }
+              } catch (storageError) {
+                console.warn('Não foi possível persistir a imagem no Storage; mantendo URL retornada pela IA.', storageError);
+              }
+
+              const { error: updateErr } = await sb
+                .from('publicacoes_ia')
+                .update({ imagem_url: imagemFinal })
+                .eq('id', targetId);
+
+              if (updateErr) throw updateErr;
+
+              p.imagem_url = imagemFinal;
+
+              const imgPreview = document.getElementById('pub_img_preview');
+              if (imgPreview) {
+                imgPreview.src = imagemFinal;
+                imgPreview.style.display = 'block';
+              }
+
+              showToast('Imagem gerada e guardada com sucesso!', 'ok');
+              await carregarPublicacoes();
+              if (typeof abrirPublicacao === 'function') abrirPublicacao(targetId);
+            } catch (e) {
+              console.error('Erro na geração de imagem:', e);
+              showToast('Erro ao gerar imagem: ' + (e.message || 'verifique a Edge Function gerar-imagem'), 'err');
+            }
+          }'''
+
+          def replace_function(src, name, replacement):
+              pattern = re.compile(r'async function ' + re.escape(name) + r'\s*\([^)]*\)\s*\{')
+              m = pattern.search(src)
+              if not m:
+                  raise SystemExit(f'Função {name} não encontrada')
+              start = m.start()
+              i = m.end() - 1
+              depth = 0
+              in_str = None
+              escape = False
+              in_line_comment = False
+              in_block_comment = False
+              j = i
+              while j < len(src):
+                  c = src[j]
+                  n = src[j+1] if j + 1 < len(src) else ''
+                  if in_line_comment:
+                      if c == '\n': in_line_comment = False
+                  elif in_block_comment:
+                      if c == '*' and n == '/':
+                          in_block_comment = False; j += 1
+                  elif in_str:
+                      if escape: escape = False
+                      elif c == '\\': escape = True
+                      elif c == in_str: in_str = None
+                  else:
+                      if c == '/' and n == '/': in_line_comment = True; j += 1
+                      elif c == '/' and n == '*': in_block_comment = True; j += 1
+                      elif c in ('"', "'", '`'): in_str = c
+                      elif c == '{': depth += 1
+                      elif c == '}':
+                          depth -= 1
+                          if depth == 0:
+                              return src[:start] + replacement + src[j+1:]
+                  j += 1
+              raise SystemExit(f'Não foi possível encontrar o fim de {name}')
+
+          text = replace_function(text, 'gerarConteudoIA', new_generate)
+          text = replace_function(text, 'gerarImagemPublicacao', new_image)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit patched admin.js
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add admin.js
+          if git diff --cached --quiet; then
+            echo "No changes needed"
+            exit 0
+          fi
+          git commit -m "fix: connect admin IA publication pipeline [auto-fix-ia]"
+          git push
