@@ -1,8 +1,8 @@
-const SUPABASE_URL = 'COLOCAR_AQUI_URL_DO_PROJECTO_SUPABASE';
-const SUPABASE_KEY = 'COLOCAR_AQUI_CHAVE_PUBLICA_SUPABASE';
+const SUPABASE_URL = 'https://bpvcghqofdhdpxwbqmdz.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_5ZriIb-_ECy0LpMNCpFZgQ_cBzPDV_W';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const SITE_URL = 'COLOCAR_AQUI_URL_DO_SITE';
+const SITE_URL = 'https://xaquizolo.com';
 const ADMIN_EMAIL_PADRAO = '';
 
 const PER_PAGE = 15;
@@ -863,12 +863,12 @@ async function gerarConteudoIA() {
   const btn = document.getElementById('gerarBtn');
   btn.disabled = true; btn.textContent = 'A gerar...';
   try {
-    const { data, error } = await sb.functions.invoke('gerar-conteudo', { body: {} });
+    const { data, error } = await sb.functions.invoke('smart-api', { body: {} });
     if (error) throw error;
     showToast('Conteúdo gerado! Está pronto para revisão.', 'ok');
     carregarPublicacoes();
   } catch (e) {
-    showToast('A função "gerar-conteudo" ainda não está publicada no Supabase. Vê o AUTOMACAO_IA_SETUP.txt.', 'err');
+    showToast('A função "smart-api" ainda não está a responder correctamente. Vê o AUTOMACAO_IA_SETUP.txt.', 'err');
   } finally {
     btn.disabled = false; btn.textContent = 'Gerar Novo Conteúdo';
   }
