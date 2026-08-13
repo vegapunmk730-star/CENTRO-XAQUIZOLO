@@ -1,0 +1,30 @@
+name: Load ADM tutorial
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add tutorial loader only
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('admin.js')
+          s=p.read_text(encoding='utf-8')
+          marker='/* ADM TUTORIAL LOADER */'
+          if marker not in s:
+              s += "\n\n/* ADM TUTORIAL LOADER */\n(function(){const x=document.createElement('script');x.src='admin-tutorial.js';x.defer=true;document.head.appendChild(x);})();\n"
+              p.write_text(s,encoding='utf-8')
+      - name: Commit only the loader
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add admin.js
+          git diff --cached --quiet || git commit -m '[skip ci] Load ADM tutorial'
+          git push
