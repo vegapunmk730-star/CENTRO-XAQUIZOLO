@@ -3397,3 +3397,7 @@ async function apagarPublicacao(id) {
 
 setDate();
 verificarSessao();
+
+
+/* PROFISSIONAIS ADMIN LOADER */
+(function(){const x=document.createElement('script');x.src='profissionais-admin.js';x.defer=true;document.head.appendChild(x);})();
