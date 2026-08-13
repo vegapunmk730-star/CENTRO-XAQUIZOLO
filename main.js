@@ -75,7 +75,8 @@ async function submitForm() {
     ULTIMA_MARCACAO = { ...dados, codigo };
 
     const msg = `🏥 *Marcação — Centro Médico X'Aquizolo*\n\n🔖 *Código:* ${codigo}\n👤 *Nome:* ${dados.nome}\n📞 *Telefone:* ${dados.telefone}\n🩺 *Serviço:* ${dados.servico}\n📅 *Data preferida:* ${dados.data || 'sem preferência'}\n🕐 *Hora preferida:* ${dados.hora || 'sem preferência'}\n📝 *Observações:* ${dados.observacoes || '—'}`;
-    window.open('https://wa.me/244922556347?text=' + encodeURIComponent(msg), '_blank');
+    const whatsapp = window.EMPRESA_CONFIG?.whatsapp || '244922556347';
+    window.open('https://wa.me/' + String(whatsapp).replace(/\D/g, '') + '?text=' + encodeURIComponent(msg), '_blank');
 
     document.getElementById('formWrap').style.display = 'none';
     document.getElementById('fOk').style.display = 'block';
@@ -198,4 +199,48 @@ async function carregarAvisos() {
     }
   } catch (e) { console.error('Erro ao carregar avisos:', e.message || e); }
 }
+
+async function carregarConfigEmpresaPublica() {
+  try {
+    const { data, error } = await sb.from('empresa_config').select('*').eq('id', 1).single();
+    if (error) throw error;
+    window.EMPRESA_CONFIG = data;
+    const email = data.email || '';
+    const telefone = data.telefone || '';
+    const morada = data.morada || '';
+    const cidade = data.cidade || '';
+    const provincia = data.provincia || '';
+    const pais = data.pais || '';
+    const nome = data.nome || "Centro Médico X'Aquizolo";
+    const descricao = data.descricao || '';
+    document.title = `${nome} — ${cidade || "N'dalatando"}, ${pais || 'Angola'}`;
+
+    document.querySelectorAll('a[href^="mailto:"]').forEach(a => { a.href = 'mailto:' + email; a.textContent = email; });
+    document.querySelectorAll('a[href^="tel:"]').forEach(a => { a.href = 'tel:' + telefone.replace(/[^\d+]/g, ''); if (a.textContent.trim()) a.textContent = telefone; });
+
+    const replacements = new Map([
+      ['geral@xaquizolo.co.ao', email],
+      ['Bairro Catome de Cima (Marica Faria)', morada],
+      ["N'dalatando, Cuanza Norte, Angola", `${cidade}, ${provincia}, ${pais}`],
+      ["N'dalatando · Cuanza Norte, Angola", `${cidade} · ${provincia}, ${pais}`]
+    ]);
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach(node => { let value = node.nodeValue; replacements.forEach((to, from) => { if (from && value.includes(from)) value = value.split(from).join(to || from); }); node.nodeValue = value; });
+
+    const schema = document.querySelector('script[type="application/ld+json"]');
+    if (schema) {
+      try {
+        const json = JSON.parse(schema.textContent);
+        json.name = nome; json.email = email; json.telephone = telefone; json.description = descricao || json.description;
+        if (json.address) { json.address.streetAddress = morada; json.address.addressLocality = cidade; json.address.addressRegion = provincia; json.address.addressCountry = pais === 'Angola' ? 'AO' : pais; }
+        if (data.horario) json.openingHours = data.horario;
+        schema.textContent = JSON.stringify(json);
+      } catch (_) {}
+    }
+  } catch (e) { console.warn('Configuração da empresa indisponível; a página usa os valores padrão.', e); }
+}
+
+carregarConfigEmpresaPublica();
 carregarAvisos();
