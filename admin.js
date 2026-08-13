@@ -19,3 +19,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 /* PROFISSIONAIS ADMIN LOADER */
 (function(){const x=document.createElement('script');x.src='profissionais-admin.js';x.defer=true;document.head.appendChild(x);})();
+
+
+/* ADM TUTORIAL LOADER */
+(function(){const x=document.createElement('script');x.src='admin-tutorial.js';x.defer=true;document.head.appendChild(x);})();
