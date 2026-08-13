@@ -31,7 +31,7 @@ async function carregarProfissionais(){try{const {data,error}=await XAQ_PROF_SB.
 .prof-cta:hover{background:var(--verde-c,#2D7D57);transform:translateY(-1px)}
 .prof-empty,.prof-loading{grid-column:1/-1;text-align:center;padding:42px 24px;color:var(--texto-s,#5A6560);border:1px dashed var(--bd,rgba(27,58,107,.12));border-radius:var(--radius,14px);background:rgba(255,255,255,.5)}
 @media(max-width:700px){#profissionaisGrid{grid-template-columns:1fr;gap:18px}.prof-body{padding:21px}.prof-photo-wrap{aspect-ratio:16/10}.prof-name{font-size:1.4rem}.prof-hours-row{font-size:.72rem}}
-@media(min-width:701px) and (max-width:1050px){#profissionaisGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px)}}
+@media(min-width:701px) and (max-width:1050px){#profissionaisGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}}
 `;document.head.appendChild(s)})();
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',carregarProfissionais);else carregarProfissionais();
