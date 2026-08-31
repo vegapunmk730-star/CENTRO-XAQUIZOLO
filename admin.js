@@ -3,7 +3,7 @@ const SUPABASE_KEY = 'sb_publishable_5ZriIb-_ECy0LpMNCpFZgQ_cBzPDV_W';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const SITE_URL = 'https://xaquizolo.com';
-const ADMIN_EMAIL_PADRAO = '';
+const ADMIN_EMAIL_PADRAO = 'vegapunmk730@gmail.com';
 
 const PER_PAGE = 15;
 let allData = [], filteredData = [], currentPage = 1;
@@ -70,7 +70,8 @@ function togglePass(id, btn) {
 }
 
 async function doLogin() {
-  const u = document.getElementById('lUser').value.trim();
+  const uField = document.getElementById('lUser');
+  const u = ADMIN_EMAIL_PADRAO || (uField ? uField.value.trim() : '');
   const p = document.getElementById('lPass').value;
   const btn = document.querySelector('.login-btn');
   const errEl = document.getElementById('loginErr');
@@ -3394,6 +3395,15 @@ async function apagarPublicacao(id) {
     );
   }
 }
+
+// Esconde o campo de utilizador/email no ecrã de login, já que o email
+// de admin é fixo (ADMIN_EMAIL_PADRAO) e não deve ser pedido/mostrado.
+(function esconderCampoUser() {
+  const uField = document.getElementById('lUser');
+  if (!uField) return;
+  const wrapper = uField.closest('label') || uField.closest('.form-group') || uField.parentElement;
+  (wrapper || uField).style.display = 'none';
+})();
 
 setDate();
 verificarSessao();
