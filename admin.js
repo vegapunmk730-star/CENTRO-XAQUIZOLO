@@ -3695,3 +3695,7 @@ async function apagarProfissional(id) {
 
 /* ADM TUTORIAL LOADER */
 (function(){const x=document.createElement('script');x.src='admin-tutorial.js';x.defer=true;document.head.appendChild(x);})();
+
+
+/* PROFISSIONAIS ADMIN LOADER */
+(function(){const x=document.createElement('script');x.src='profissionais-admin.js';x.defer=true;document.head.appendChild(x);})();
